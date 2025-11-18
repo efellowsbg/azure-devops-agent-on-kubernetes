@@ -99,7 +99,7 @@ RUN chmod +x start.sh
 
 
 # Create non-root user under docker group
-RUN useradd -m -s /bin/bash -u "1000" azdouser
+RUN useradd -m -s /bin/bash -u "6969" azdouser
 RUN groupadd docker && usermod -aG docker azdouser
 RUN apt-get update \
     && apt-get install -y sudo \
