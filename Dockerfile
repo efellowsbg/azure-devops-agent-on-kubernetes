@@ -1,6 +1,3 @@
-# ===========================
-# Base image and build args
-# ===========================
 ARG ARG_UBUNTU_BASE_IMAGE="ubuntu"
 ARG ARG_UBUNTU_BASE_IMAGE_TAG="24.04"
 FROM ${ARG_UBUNTU_BASE_IMAGE}:${ARG_UBUNTU_BASE_IMAGE_TAG}
@@ -10,15 +7,9 @@ WORKDIR /azp
 ARG ARG_VSTS_AGENT_VERSION=4.264.2
 ARG TARGETARCH
 
-# ===========================
-# General environment
-# ===========================
 ENV DEBIAN_FRONTEND=noninteractive
 RUN echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90assumeyes
 
-# ===========================
-# Install system dependencies
-# ===========================
 RUN apt-get update && apt-get install -y --no-install-recommends \
         apt-transport-https \
         apt-utils \
@@ -37,9 +28,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get -y upgrade
 
-# ===========================
-# Download and extract Azure DevOps Agent (multi-arch)
-# ===========================
 RUN case "$TARGETARCH" in \
         amd64) AGENT_ARCH=linux-x64 ;; \
         arm64) AGENT_ARCH=linux-arm64 ;; \
@@ -48,48 +36,27 @@ RUN case "$TARGETARCH" in \
     echo "Downloading Azure DevOps Agent version ${ARG_VSTS_AGENT_VERSION} for $AGENT_ARCH" && \
     curl -LsS https://download.agent.dev.azure.com/agent/${ARG_VSTS_AGENT_VERSION}/vsts-agent-${AGENT_ARCH}-${ARG_VSTS_AGENT_VERSION}.tar.gz | tar -xz
 
-# ===========================
-# Install Azure CLI & Azure DevOps extension
-# ===========================
 RUN curl -LsS https://aka.ms/InstallAzureCLIDeb | bash \
     && az extension add --name azure-devops
 
-# ===========================
-# Install Helm
-# ===========================
 RUN curl https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash
 
-# ===========================
-# Install kubectl (multi-arch)
-# ===========================
 RUN KUBEARCH=$(dpkg --print-architecture) && \
     curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$KUBEARCH/kubectl" && \
     mv ./kubectl /usr/bin/kubectl && chmod +x /usr/bin/kubectl
 
-# ===========================
-# Install yq (multi-arch)
-# ===========================
 RUN YQARCH=$(dpkg --print-architecture) && \
     wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_$YQARCH && \
     mv ./yq_linux_$YQARCH /usr/bin/yq && chmod +x /usr/bin/yq
 
-# ===========================
-# Install Docker CLI
-# ===========================
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
         | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
     apt-get update && apt-get install -y docker-ce-cli
 
-# ===========================
-# Copy start script
-# ===========================
 COPY ./start.sh .
 RUN chmod +x start.sh
 
-# ===========================
-# Create non-root user
-# ===========================
 RUN useradd -m -s /bin/bash -u "6969" azdouser \
     && groupadd docker && usermod -aG docker azdouser \
     && echo "azdouser ALL=(root) NOPASSWD:ALL" >> /etc/sudoers \
@@ -98,7 +65,4 @@ RUN useradd -m -s /bin/bash -u "6969" azdouser \
 USER azdouser
 WORKDIR /azp
 
-# ===========================
-# Entrypoint
-# ===========================
 ENTRYPOINT ["./start.sh"]
