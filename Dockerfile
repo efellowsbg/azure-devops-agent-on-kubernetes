@@ -1,11 +1,12 @@
 ARG ARG_UBUNTU_BASE_IMAGE="ubuntu"
 ARG ARG_UBUNTU_BASE_IMAGE_TAG="24.04"
+ARG ARG_VSTS_AGENT_VERSION=4.264.2
+ARG ARG_TERRAFORM_VERSION=1.14.3
+ARG TARGETARCH
+
 FROM ${ARG_UBUNTU_BASE_IMAGE}:${ARG_UBUNTU_BASE_IMAGE_TAG}
 
 WORKDIR /azp
-
-ARG ARG_VSTS_AGENT_VERSION=4.264.2
-ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90assumeyes
@@ -53,6 +54,18 @@ RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
         | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
     apt-get update && apt-get install -y docker-ce-cli
+
+RUN case "$TARGETARCH" in \
+        amd64) TERRAFORM_ARCH=amd64 ;; \
+        arm64) TERRAFORM_ARCH=arm64 ;; \
+        *) echo "Unsupported architecture: $TARGETARCH" && exit 1 ;; \
+    esac && \
+    echo "Downloading Terraform version ${ARG_TERRAFORM_VERSION} for $TERRAFORM_ARCH" && \
+    curl -SL "https://releases.hashicorp.com/terraform/${ARG_TERRAFORM_VERSION}/terraform_${ARG_TERRAFORM_VERSION}_linux_${TERRAFORM_ARCH}.zip" -o /tmp/terraform.zip && \
+    unzip /tmp/terraform.zip -d /usr/bin/ && \
+    rm -f /tmp/terraform.zip && \
+    terraform -version
+
 
 COPY ./start.sh .
 RUN chmod +x start.sh
