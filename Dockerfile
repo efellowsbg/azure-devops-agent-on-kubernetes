@@ -1,117 +1,104 @@
+# ===========================
+# Base image and build args
+# ===========================
 ARG ARG_UBUNTU_BASE_IMAGE="ubuntu"
 ARG ARG_UBUNTU_BASE_IMAGE_TAG="24.04"
-
 FROM ${ARG_UBUNTU_BASE_IMAGE}:${ARG_UBUNTU_BASE_IMAGE_TAG}
+
 WORKDIR /azp
-ARG ARG_TARGETARCH=linux-x64
+
 ARG ARG_VSTS_AGENT_VERSION=4.264.2
+ARG TARGETARCH
 
-
-# To make it easier for build and release pipelines to run apt-get,
-# configure apt to not require confirmation (assume the -y argument by default)
+# ===========================
+# General environment
+# ===========================
 ENV DEBIAN_FRONTEND=noninteractive
-RUN echo "APT::Get::Assume-Yes \"true\";" > /etc/apt/apt.conf.d/90assumeyes
+RUN echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90assumeyes
 
-
-# Install required tools
+# ===========================
+# Install system dependencies
+# ===========================
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    apt-transport-https \
-    apt-utils \
-    ca-certificates \
-    curl \
-    git \
-    git-lfs \
-    iputils-ping \
-    jq \
-    lsb-release \
-    software-properties-common \
-    maven \
-    && rm -rf /var/lib/apt/lists/*
-RUN apt-get update && apt-get -y upgrade
+        apt-transport-https \
+        apt-utils \
+        ca-certificates \
+        curl \
+        git \
+        git-lfs \
+        iputils-ping \
+        jq \
+        lsb-release \
+        software-properties-common \
+        maven \
+        wget \
+        unzip \
+        sudo \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get -y upgrade
 
+# ===========================
+# Download and extract Azure DevOps Agent (multi-arch)
+# ===========================
+RUN case "$TARGETARCH" in \
+        amd64) AGENT_ARCH=linux-x64 ;; \
+        arm64) AGENT_ARCH=linux-arm64 ;; \
+        *) echo "Unsupported architecture: $TARGETARCH" && exit 1 ;; \
+    esac && \
+    echo "Downloading Azure DevOps Agent version ${ARG_VSTS_AGENT_VERSION} for $AGENT_ARCH" && \
+    curl -LsS https://download.agent.dev.azure.com/agent/${ARG_VSTS_AGENT_VERSION}/vsts-agent-${AGENT_ARCH}-${ARG_VSTS_AGENT_VERSION}.tar.gz | tar -xz
 
-
-# Download and extract the Azure DevOps Agent
-RUN printenv \
-    && echo "Downloading Azure DevOps Agent version ${ARG_VSTS_AGENT_VERSION} for ${ARG_TARGETARCH}"
-RUN curl -LsS https://download.agent.dev.azure.com/agent/${ARG_VSTS_AGENT_VERSION}/vsts-agent-${ARG_TARGETARCH}-${ARG_VSTS_AGENT_VERSION}.tar.gz | tar -xz
-
-
+# ===========================
 # Install Azure CLI & Azure DevOps extension
+# ===========================
 RUN curl -LsS https://aka.ms/InstallAzureCLIDeb | bash \
-    && rm -rf /var/lib/apt/lists/*
-RUN az extension add --name azure-devops
+    && az extension add --name azure-devops
 
-
-
-# Install required tools
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget \
-    unzip
-
-
-
-# Install yq
-RUN wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
-    && mv ./yq_linux_amd64 /usr/bin/yq \
-    && chmod +x /usr/bin/yq
-
-
-
+# ===========================
 # Install Helm
+# ===========================
 RUN curl https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash
 
+# ===========================
+# Install kubectl (multi-arch)
+# ===========================
+RUN KUBEARCH=$(dpkg --print-architecture) && \
+    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$KUBEARCH/kubectl" && \
+    mv ./kubectl /usr/bin/kubectl && chmod +x /usr/bin/kubectl
 
+# ===========================
+# Install yq (multi-arch)
+# ===========================
+RUN YQARCH=$(dpkg --print-architecture) && \
+    wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_$YQARCH && \
+    mv ./yq_linux_$YQARCH /usr/bin/yq && chmod +x /usr/bin/yq
 
-# Install Kubectl
-RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
-    && mv ./kubectl /usr/bin/kubectl \
-    && chmod +x /usr/bin/kubectl
-
-
-
-# Install Powershell Core
-RUN wget -q "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb" \
-    && dpkg -i packages-microsoft-prod.deb
-RUN apt-get update \
-    && apt-get install -y powershell
-
-
-
+# ===========================
 # Install Docker CLI
-RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-RUN echo \
-    "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu \
-    $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-RUN apt-get update \
-    && apt-get install -y docker-ce-cli
+# ===========================
+RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
+        | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+    apt-get update && apt-get install -y docker-ce-cli
 
-
-
-# do apt-get upgrade
-RUN apt-get update && apt-get -y upgrade
-
-
-
+# ===========================
 # Copy start script
+# ===========================
 COPY ./start.sh .
 RUN chmod +x start.sh
 
+# ===========================
+# Create non-root user
+# ===========================
+RUN useradd -m -s /bin/bash -u "6969" azdouser \
+    && groupadd docker && usermod -aG docker azdouser \
+    && echo "azdouser ALL=(root) NOPASSWD:ALL" >> /etc/sudoers \
+    && chown -R azdouser /azp /home/azdouser /var/run/docker.sock || true
 
-
-# Create non-root user under docker group
-RUN useradd -m -s /bin/bash -u "6969" azdouser
-RUN groupadd docker && usermod -aG docker azdouser
-RUN apt-get update \
-    && apt-get install -y sudo \
-    && echo azdouser ALL=\(root\) NOPASSWD:ALL >> /etc/sudoers
-
-RUN sudo chown -R azdouser /home/azdouser
-RUN sudo chown -R azdouser /azp
-RUN sudo chown -R azdouser /var/run/docker.sock || true
 USER azdouser
-
-
-# cd to /azp and run start.sh
 WORKDIR /azp
+
+# ===========================
+# Entrypoint
+# ===========================
 ENTRYPOINT ["./start.sh"]
